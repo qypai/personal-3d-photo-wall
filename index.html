@@ -90,6 +90,7 @@ button{font:inherit}
         console.log('浏览器阻止了自动播放，请用户手动启动音乐。');
     }
 });
+const imgBaseUrl = "https://fastly.jsdelivr.net/gh/qypai/personal-3d-photo-wall@main/";
 /* 将照片放进 photos 文件夹，然后在这里修改图片路径即可。
    支持任意数量照片；建议使用竖版照片，效果更协调。 */
 const photos = [
@@ -107,7 +108,7 @@ const photos = [
  
 ];
 // 如果本地照片还没放好，先使用在线示例图预览；换成自己的照片后可删除 fallback。
-
+const photos = rawPhotos.map(path => imgBaseUrl + path);
 const stage=document.querySelector("#stage"), world=document.querySelector("#world");
 const autoBtn=document.querySelector("#auto"), speed=document.querySelector("#speed");
 const musicBtn=document.querySelector("#musicBtn"), bgMusic=document.querySelector("#bgMusic");
