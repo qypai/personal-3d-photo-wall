@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#e9e9f8">
+<title>Photo Gallery</title>
+<style>
+*{box-sizing:border-box}
+:root{--bg1:#dfe5ff;--bg2:#f8e8f0;--ink:#706b85}
+html,body{margin:0;width:100%;height:100%;overflow:hidden}
+body{
+  font-family:Inter,"PingFang SC","Microsoft YaHei",sans-serif;
+  background:radial-gradient(ellipse at 50% 42%,#fffdfd 0%,#f4effb 35%,transparent 70%),
+  linear-gradient(125deg,var(--bg1),#eee8fa 52%,var(--bg2));
+  color:var(--ink);user-select:none
+}
+#stage{position:relative;width:100%;height:100%;perspective:1500px;overflow:hidden;touch-action:none;cursor:grab}
+#stage.dragging{cursor:grabbing}
+#glow{position:absolute;left:50%;top:49%;width:min(70vw,760px);height:min(50vw,440px);transform:translate(-50%,-50%);border-radius:50%;background:#c6c5f544;filter:blur(45px);pointer-events:none}
+#world{position:absolute;left:50%;top:49%;width:0;height:0;transform-style:preserve-3d;will-change:transform}
+.photo{
+  position:absolute;left:0;top:0;width:clamp(112px,15vw,190px);height:clamp(150px,20vw,245px);
+  padding:7px 7px 8px;background:rgba(255,255,255,.94);
+  border:1px solid #ffffff;box-shadow:0 16px 40px #55506d24,0 2px 5px #51476810;
+  transform-style:preserve-3d;backface-visibility:hidden;cursor:pointer;
+  transition:box-shadow .25s,filter .25s;overflow:hidden
+}
+.photo img{width:100%;height:100%;object-fit:cover;object-position:center;display:block;pointer-events:none;image-rendering:auto;-webkit-user-drag:none}
+.photo:hover{box-shadow:0 24px 55px #55506d40;filter:brightness(1.035)}
+#top{position:absolute;top:26px;left:30px;font-size:12px;letter-spacing:.2em;color:#77738b;opacity:.85;pointer-events:none}
+#top:before{content:"";display:inline-block;width:6px;height:6px;margin:0 12px 2px 0;border-radius:50%;background:#fff;box-shadow:0 0 0 4px #ffffff45}
+#controls{position:absolute;right:24px;top:20px;display:flex;gap:8px;align-items:center}
+button{font:inherit}
+.control{border:1px solid #ffffffaa;background:#ffffff60;color:#716d86;border-radius:100px;padding:9px 13px;font-size:12px;backdrop-filter:blur(12px);cursor:pointer;transition:.2s}
+.control:hover,.control.active{background:#ffffffc9;box-shadow:0 5px 18px #756d9220}
+#speedWrap{display:flex;align-items:center;gap:8px;border:1px solid #ffffffaa;background:#ffffff60;border-radius:100px;padding:7px 12px;font-size:11px;backdrop-filter:blur(12px)}
+#speed{width:75px;accent-color:#8f8ab5;cursor:pointer}
+#hint{position:absolute;left:50%;bottom:25px;transform:translateX(-50%);font-size:11px;letter-spacing:.16em;color:#77738b99;white-space:nowrap;pointer-events:none}
+#viewer{position:fixed;inset:0;background:#282333c9;backdrop-filter:blur(15px);display:none;align-items:center;justify-content:center;z-index:10;padding:28px;cursor:zoom-out}
+#viewer.open{display:flex}
+#large{display:block;width:auto;height:auto;max-width:min(92vw,1400px);max-height:88vh;object-fit:contain;image-rendering:auto;box-shadow:0 30px 100px #0004;border:8px solid #fff;background:#fff}
+#close{position:absolute;right:24px;top:20px;width:42px;height:42px;border:1px solid #ffffff55;border-radius:50%;background:#ffffff18;color:#fff;font-size:25px;cursor:pointer}
+@media(max-width:600px){
+ #top{top:20px;left:17px;font-size:10px}
+ #controls{right:12px;top:58px;gap:5px;flex-wrap:wrap;justify-content:flex-end;max-width:calc(100% - 24px)}
+ .control{padding:8px 10px;font-size:11px}
+ #speedWrap{padding:6px 9px}
+ #speed{width:53px}
+ #world{top:49%}
+ .photo{width:clamp(120px,34vw,165px);height:clamp(165px,46vw,220px);padding:5px}
+ #hint{bottom:22px;font-size:10px}
+}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="glow"></div>
+  <div id="top">PHOTO GALLERY</div>
+  <div id="controls">
+    <button class="control" id="musicBtn" title="播放或暂停背景音乐">♫ 音乐 · 关</button>
+    <button class="control active" id="auto">自动旋转 · 开</button>
+    <div id="speedWrap"><span>速度</span><input id="speed" type="range" min="0" max="10" value="3" aria-label="旋转速度"></div>
+    <button class="control" id="reset">复位</button>
+  </div>
+  <div id="world"></div>
+  <div id="hint">拖动旋转 · 点击照片放大</div>
+</div>
+<div id="viewer" aria-label="大图预览"><button id="close" aria-label="关闭">×</button><img id="large" alt="照片预览"></div>
+<audio
+    id="bgMusic"
+    src="music/background.mp3"
+    loop
+    preload="auto"
+    autoplay>
+</audio>
+<script>
+  document.addEventListener('DOMContentLoaded', async () => {
+    const music = document.getElementById('bgMusic');
+
+    if (!music) return;
+
+    music.volume = 0.35;
+
+    try {
+        await music.play();
+        console.log('背景音乐开始播放');
+    } catch (error) {
+        console.log('浏览器阻止了自动播放，请用户手动启动音乐。');
+    }
+});
+/* 将照片放进 photos 文件夹，然后在这里修改图片路径即可。
+   支持任意数量照片；建议使用竖版照片，效果更协调。 */
+const photos = [
+  "photos/photo-01.jpg",
+  "photos/photo-02.jpg",
+  "photos/photo-03.jpg",
+  "photos/photo-04.jpg",
+  "photos/photo-05.jpg",
+  "photos/photo-06.jpg",
+  "photos/photo-07.jpg",
+  "photos/photo-08.jpg",
+  "photos/photo-09.jpg",
+  "photos/photo-10.jpg",
+  "photos/photo-11.jpg",
+ 
+];
+// 如果本地照片还没放好，先使用在线示例图预览；换成自己的照片后可删除 fallback。
+
+const stage=document.querySelector("#stage"), world=document.querySelector("#world");
+const autoBtn=document.querySelector("#auto"), speed=document.querySelector("#speed");
+const musicBtn=document.querySelector("#musicBtn"), bgMusic=document.querySelector("#bgMusic");
+bgMusic.volume = 0.35;
+musicBtn.addEventListener("click", async () => {
+  if (bgMusic.paused) {
+    try {
+      await bgMusic.play();
+      musicBtn.textContent = "♫ 音乐 · 开";
+      musicBtn.classList.add("active");
+    } catch (err) {
+      musicBtn.textContent = "♫ 请检查音乐文件";
+      setTimeout(() => { musicBtn.textContent = bgMusic.paused ? "♫ 音乐 · 关" : "♫ 音乐 · 开"; }, 2200);
+    }
+  } else {
+    bgMusic.pause();
+    musicBtn.textContent = "♫ 音乐 · 关";
+    musicBtn.classList.remove("active");
+  }
+});
+const viewer=document.querySelector("#viewer"), large=document.querySelector("#large");
+let yaw=0,pitch=0,auto=true,dragging=false,lastX=0,lastY=0,velocityX=0,velocityY=0;
+let lastTime=performance.now(), cards=[];
+function getImages(){
+  // 使用 photos 数组中的本地高清照片。
+  return photos;
+}
+function build(){
+  world.innerHTML="";cards=[];
+  const imgs=getImages(), n=imgs.length;
+  imgs.forEach((src,i)=>{
+    const el=document.createElement("div");el.className="photo";
+    const img=document.createElement("img");img.src=src;img.alt="个人照片";img.draggable=false;img.loading="eager";img.decoding="async";
+    img.onerror=()=>{img.style.background="linear-gradient(135deg,#f6dce9,#dfe1fa)";img.removeAttribute("src")};
+    el.appendChild(img);
+    const angle=i*360/n;
+    const radius=Math.min(450,Math.max(260,n*24));
+    const tilt=(i%3-1)*4;
+    el.dataset.angle=angle;
+    el.dataset.radius=radius;
+    el.dataset.tilt=tilt;
+    el.addEventListener("click",e=>{
+      if(dragMoved)return;
+      large.src=img.src;viewer.classList.add("open");
+    });
+    world.appendChild(el);cards.push(el);
+  });
+  layout();
+}
+function layout(){
+  const vw=window.innerWidth, vh=window.innerHeight;
+  // 照片沿真正的竖直圆柱面均匀分布：每张照片占据固定角度间隔，
+  // 同一圆周上的照片高度一致，旋转时像展示在圆柱外壁的照片。
+  // 增大圆柱半径并适当缩小卡片，让照片沿圆周分布得更开、减少重叠。
+  const radius=vw<600
+    ? Math.min(285, Math.max(225, cards.length*22))
+    : Math.min(520, Math.max(390, cards.length*35));
+  const cardW=vw<600?Math.min(142,vw*.34):Math.min(205,Math.max(180,vw*.155));
+  const circumference=2*Math.PI*radius;
+  const step=360/Math.max(cards.length,1);
+  cards.forEach((el,i)=>{
+    const angle=(i*step)*Math.PI/180;
+    const x=Math.sin(angle)*radius;
+    const z=Math.cos(angle)*radius;
+    el.style.width=cardW+"px";
+    el.style.height=(cardW*1.34)+"px";
+    // 照片随圆柱曲面转向，圆柱前方的照片朝向观察者，侧后方自然转向。
+    el.style.transform=`translate3d(${x}px,0px,${z}px) translate(-50%,-50%) rotateY(${i*step}deg)`;
+    // 按照片相对观察者的朝向渐变透明：正面清晰，转向左右边缘时逐渐淡出。
+    const relativeAngle=(i*step+yaw)*Math.PI/180;
+    const facing=Math.cos(relativeAngle);
+    const fadeT=Math.max(0,Math.min(1,(facing+0.18)/0.88));
+    const smoothFade=fadeT*fadeT*(3-2*fadeT);
+    el.style.opacity=String(0.08+0.92*smoothFade);
+    el.style.zIndex=String(Math.round(z+radius+1));
+  });
+  world.style.transform=`rotateX(${pitch*.25}deg) rotateY(${yaw}deg)`;
+}
+let dragMoved=false;
+stage.addEventListener("pointerdown",e=>{
+  if(e.target.closest("button")||e.target.closest("#speedWrap"))return;
+  dragging=true;dragMoved=false;lastX=e.clientX;lastY=e.clientY;velocityX=velocityY=0;
+  stage.classList.add("dragging");stage.setPointerCapture(e.pointerId);
+});
+stage.addEventListener("pointermove",e=>{
+  if(!dragging)return;
+  const dx=e.clientX-lastX,dy=e.clientY-lastY;
+  if(Math.abs(dx)+Math.abs(dy)>2)dragMoved=true;
+  yaw+=dx*.42;pitch-=dy*.28;pitch=Math.max(-55,Math.min(55,pitch));
+  velocityX=dx*.42;velocityY=-dy*.28;lastX=e.clientX;lastY=e.clientY;layout();
+});
+function stopDrag(){dragging=false;stage.classList.remove("dragging")}
+stage.addEventListener("pointerup",stopDrag);stage.addEventListener("pointercancel",stopDrag);
+autoBtn.addEventListener("click",()=>{auto=!auto;autoBtn.classList.toggle("active",auto);autoBtn.textContent=auto?"自动旋转 · 开":"自动旋转 · 关"});
+document.querySelector("#reset").addEventListener("click",()=>{yaw=0;pitch=0;velocityX=velocityY=0;layout()});
+document.querySelector("#close").addEventListener("click",()=>viewer.classList.remove("open"));
+viewer.addEventListener("click",e=>{if(e.target===viewer) viewer.classList.remove("open")});
+document.addEventListener("keydown",e=>{if(e.key==="Escape")viewer.classList.remove("open")});
+window.addEventListener("resize",layout);
+function animate(now){
+  const dt=Math.min(40,now-lastTime);lastTime=now;
+  if(!dragging){
+    const s=Number(speed.value)/3;
+    if(auto)yaw+=dt*.006*s;
+    else {yaw+=velocityX*.08;pitch+=velocityY*.08;velocityX*=.92;velocityY*=.92}
+    layout();
+  }
+  requestAnimationFrame(animate);
+}
+build();requestAnimationFrame(animate);
+</script>
+</body>
+</html>
